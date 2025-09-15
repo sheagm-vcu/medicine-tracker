@@ -1,6 +1,6 @@
 My groupmembers are:
 - Grace Shea
-- XXXX
+- Jay Alston
 - XXXX
 - XXXX
 
