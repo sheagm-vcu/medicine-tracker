@@ -1,5 +1,5 @@
 My groupmembers are:
-- XXXX
+- Grace Shea
 - XXXX
 - XXXX
 - XXXX
