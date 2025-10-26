@@ -1,11 +1,4 @@
-import { 
-  doc, 
-  setDoc, 
-  getDoc, 
-  updateDoc,
-  Timestamp
-} from 'firebase/firestore';
-import { db } from '../firebase.config';
+import firestore from '@react-native-firebase/firestore';
 import { UserModel } from '../models/User';
 import { UserPreferences } from '../types';
 
@@ -19,12 +12,14 @@ export class UserService {
         throw new Error(`Validation failed: ${validation.errors.join(', ')}`);
       }
 
-      const userRef = doc(db, this.COLLECTION_NAME, user.uid);
-      await setDoc(userRef, {
-        ...user.toFirestoreData(),
-        createdAt: Timestamp.fromDate(user.createdAt),
-        lastLoginAt: user.lastLoginAt ? Timestamp.fromDate(user.lastLoginAt) : null,
-      });
+      await firestore()
+        .collection(this.COLLECTION_NAME)
+        .doc(user.uid)
+        .set({
+          ...user.toFirestoreData(),
+          createdAt: firestore.Timestamp.fromDate(user.createdAt),
+          lastLoginAt: user.lastLoginAt ? firestore.Timestamp.fromDate(user.lastLoginAt) : null,
+        });
     } catch (error) {
       console.error('Error creating user:', error);
       throw new Error('Failed to create user');
@@ -33,8 +28,10 @@ export class UserService {
 
   static async getUser(uid: string): Promise<UserModel | null> {
     try {
-      const userRef = doc(db, this.COLLECTION_NAME, uid);
-      const userSnap = await getDoc(userRef);
+      const userSnap = await firestore()
+        .collection(this.COLLECTION_NAME)
+        .doc(uid)
+        .get();
       
       if (userSnap.exists()) {
         return UserModel.fromFirestoreData({
@@ -56,11 +53,13 @@ export class UserService {
         throw new Error(`Validation failed: ${validation.errors.join(', ')}`);
       }
 
-      const userRef = doc(db, this.COLLECTION_NAME, user.uid);
-      await updateDoc(userRef, {
-        ...user.toFirestoreData(),
-        lastLoginAt: user.lastLoginAt ? Timestamp.fromDate(user.lastLoginAt) : null,
-      });
+      await firestore()
+        .collection(this.COLLECTION_NAME)
+        .doc(user.uid)
+        .update({
+          ...user.toFirestoreData(),
+          lastLoginAt: user.lastLoginAt ? firestore.Timestamp.fromDate(user.lastLoginAt) : null,
+        });
     } catch (error) {
       console.error('Error updating user:', error);
       throw new Error('Failed to update user');
@@ -69,11 +68,13 @@ export class UserService {
 
   static async updateUserPreferences(uid: string, preferences: Partial<UserPreferences>): Promise<void> {
     try {
-      const userRef = doc(db, this.COLLECTION_NAME, uid);
-      await updateDoc(userRef, {
-        preferences: preferences,
-        updatedAt: Timestamp.now(),
-      });
+      await firestore()
+        .collection(this.COLLECTION_NAME)
+        .doc(uid)
+        .update({
+          preferences: preferences,
+          updatedAt: firestore.Timestamp.now(),
+        });
     } catch (error) {
       console.error('Error updating user preferences:', error);
       throw new Error('Failed to update user preferences');
@@ -82,10 +83,12 @@ export class UserService {
 
   static async updateLastLogin(uid: string): Promise<void> {
     try {
-      const userRef = doc(db, this.COLLECTION_NAME, uid);
-      await updateDoc(userRef, {
-        lastLoginAt: Timestamp.now(),
-      });
+      await firestore()
+        .collection(this.COLLECTION_NAME)
+        .doc(uid)
+        .update({
+          lastLoginAt: firestore.Timestamp.now(),
+        });
     } catch (error) {
       console.error('Error updating last login:', error);
       throw new Error('Failed to update last login');

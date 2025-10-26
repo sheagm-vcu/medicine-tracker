@@ -12,7 +12,20 @@
           "package_name": "medicine.tracker"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "935829422407-87li8rpqd3bqc5v07c8ej6cf8vskcc23.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "medicine.tracker",
+            "certificate_hash": "5dfaeaa51a5c030aec3f6a5029e78c2b07a5be71"
+          }
+        },
+        {
+          "client_id": "935829422407-gfq7dfrupg4v43u073p0qsmgntg5n91d.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyAG6yHPK2BQa4kmSpFOOFtjTAR23EtaCKI"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "935829422407-gfq7dfrupg4v43u073p0qsmgntg5n91d.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

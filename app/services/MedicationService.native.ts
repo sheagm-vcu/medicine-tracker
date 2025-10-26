@@ -70,7 +70,7 @@ export class MedicationService {
         .doc(id)
         .get();
       
-      if (medicationSnap.exists()) {
+      if (medicationSnap.exists) {
         return MedicationModel.fromFirestoreData({
           id: medicationSnap.id,
           ...medicationSnap.data()

@@ -36,15 +36,13 @@ export class MedicationService {
         throw new Error(`Validation failed: ${validation.errors.join(', ')}`);
       }
 
-      await firestore()
-        .collection(this.COLLECTION_NAME)
-        .doc(id)
-        .update({
-          ...medication.toFirestoreData(),
-          updatedAt: firestore.Timestamp.fromDate(medication.updatedAt),
-          startDate: firestore.Timestamp.fromDate(medication.startDate),
-          endDate: medication.endDate ? firestore.Timestamp.fromDate(medication.endDate) : null,
-        });
+      const medicationRef = doc(db, this.COLLECTION_NAME, id);
+      await updateDoc(medicationRef, {
+        ...medication.toFirestoreData(),
+        updatedAt: Timestamp.fromDate(medication.updatedAt),
+        startDate: Timestamp.fromDate(medication.startDate),
+        endDate: medication.endDate ? Timestamp.fromDate(medication.endDate) : null,
+      });
     } catch (error) {
       console.error('Error updating medication:', error);
       throw new Error('Failed to update medication');
@@ -53,10 +51,8 @@ export class MedicationService {
 
   static async deleteMedication(id: string): Promise<void> {
     try {
-      await firestore()
-        .collection(this.COLLECTION_NAME)
-        .doc(id)
-        .delete();
+      const medicationRef = doc(db, this.COLLECTION_NAME, id);
+      await deleteDoc(medicationRef);
     } catch (error) {
       console.error('Error deleting medication:', error);
       throw new Error('Failed to delete medication');
@@ -65,10 +61,8 @@ export class MedicationService {
 
   static async getMedication(id: string): Promise<MedicationModel | null> {
     try {
-      const medicationSnap = await firestore()
-        .collection(this.COLLECTION_NAME)
-        .doc(id)
-        .get();
+      const medicationRef = doc(db, this.COLLECTION_NAME, id);
+      const medicationSnap = await getDoc(medicationRef);
       
       if (medicationSnap.exists()) {
         return MedicationModel.fromFirestoreData({
@@ -89,38 +83,39 @@ export class MedicationService {
     pagination?: PaginationOptions
   ): Promise<MedicationModel[]> {
     try {
-      let query = firestore()
-        .collection(this.COLLECTION_NAME)
-        .where('userId', '==', userId);
+      let q = query(
+        collection(db, this.COLLECTION_NAME),
+        where('userId', '==', userId)
+      );
 
       // Apply filters
       if (filters?.isActive !== undefined) {
-        query = query.where('isActive', '==', filters.isActive);
+        q = query(q, where('isActive', '==', filters.isActive));
       }
 
       if (filters?.startDate) {
-        query = query.where('startDate', '>=', firestore.Timestamp.fromDate(filters.startDate));
+        q = query(q, where('startDate', '>=', Timestamp.fromDate(filters.startDate)));
       }
 
       if (filters?.endDate) {
-        query = query.where('endDate', '<=', firestore.Timestamp.fromDate(filters.endDate));
+        q = query(q, where('endDate', '<=', Timestamp.fromDate(filters.endDate)));
       }
 
       if (filters?.dosageForm) {
-        query = query.where('dosage.form', '==', filters.dosageForm);
+        q = query(q, where('dosage.form', '==', filters.dosageForm));
       }
 
       // Apply ordering
       const orderByField = pagination?.orderBy || 'createdAt';
       const orderDirection = pagination?.orderDirection || 'desc';
-      query = query.orderBy(orderByField, orderDirection);
+      q = query(q, orderBy(orderByField, orderDirection));
 
       // Apply pagination
       if (pagination?.limit) {
-        query = query.limit(pagination.limit);
+        q = query(q, limit(pagination.limit));
       }
 
-      const querySnapshot = await query.get();
+      const querySnapshot = await getDocs(q);
       const medications = querySnapshot.docs.map(doc => 
         MedicationModel.fromFirestoreData({
           id: doc.id,

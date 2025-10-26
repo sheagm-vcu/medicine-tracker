@@ -1,17 +1,9 @@
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, Text, View, TouchableOpacity, Alert, ScrollView } from 'react-native';
 import { useState, useEffect } from 'react';
-import { 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, 
-  signOut, 
-  onAuthStateChanged,
-  User as FirebaseUser 
-} from 'firebase/auth';
-import { auth } from './firebase.config';
 import { UserModel } from './models/User';
 import { MedicationModel } from './models/Medication';
-import { UserService } from './services/UserService';
+import { AuthService } from './services/AuthService';
 import { MedicationService } from './services/MedicationService';
 import { DosageUnit, DosageForm, FrequencyType } from './types';
 
@@ -22,20 +14,11 @@ export default function App() {
   const [isCreatingUser, setIsCreatingUser] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        try {
-          // Create or get user model
-          const userModel = UserModel.fromFirebaseUser(firebaseUser);
-          await UserService.createOrUpdateUser(userModel);
-          setUser(userModel);
-          
-          // Load user's medications
-          await loadMedicines(userModel.uid);
-        } catch (error) {
-          console.error('Error handling user state:', error);
-          Alert.alert('Error', 'Failed to load user data');
-        }
+    const unsubscribe = AuthService.onAuthStateChanged(async (userModel) => {
+      if (userModel) {
+        setUser(userModel);
+        // Load user's medications
+        await loadMedicines(userModel.uid);
       } else {
         setUser(null);
         setMedicines([]);
@@ -48,7 +31,7 @@ export default function App() {
 
   const signIn = async () => {
     try {
-      await signInWithEmailAndPassword(auth, 'test@example.com', 'password123');
+      await AuthService.signInWithEmail('test@example.com', 'password123');
     } catch (error: any) {
       Alert.alert('Sign In Error', error.message);
     }
@@ -57,7 +40,7 @@ export default function App() {
   const signUp = async () => {
     try {
       setIsCreatingUser(true);
-      await createUserWithEmailAndPassword(auth, 'test@example.com', 'password123');
+      await AuthService.signUpWithEmail('test@example.com', 'password123');
     } catch (error: any) {
       Alert.alert('Sign Up Error', error.message);
     } finally {
@@ -65,9 +48,17 @@ export default function App() {
     }
   };
 
+  const signInWithGoogle = async () => {
+    try {
+      await AuthService.signInWithGoogle();
+    } catch (error: any) {
+      Alert.alert('Google Sign In Error', error.message);
+    }
+  };
+
   const logout = async () => {
     try {
-      await signOut(auth);
+      await AuthService.signOut();
     } catch (error: any) {
       Alert.alert('Logout Error', error.message);
     }
@@ -199,6 +190,9 @@ export default function App() {
           <TouchableOpacity style={styles.button} onPress={signIn}>
             <Text style={styles.buttonText}>Sign In</Text>
           </TouchableOpacity>
+          <TouchableOpacity style={[styles.button, styles.googleButton]} onPress={signInWithGoogle}>
+            <Text style={styles.buttonText}>Sign In with Google</Text>
+          </TouchableOpacity>
         </View>
       )}
       
@@ -214,8 +208,10 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     alignItems: 'center',
+    justifyContent: 'center',
     padding: 20,
     paddingBottom: 40,
+    minHeight: '100%',
   },
   title: {
     fontSize: 24,
@@ -262,6 +258,9 @@ const styles = StyleSheet.create({
   logoutButton: {
     backgroundColor: '#FF3B30',
     marginTop: 20,
+  },
+  googleButton: {
+    backgroundColor: '#4285F4',
   },
   medicinesTitle: {
     fontSize: 18,
