@@ -9,6 +9,9 @@ dist/
 web-build/
 expo-env.d.ts
 
+# Template files (reference only, not included in build)
+keynote-template/
+
 # Native
 .kotlin/
 *.orig.*

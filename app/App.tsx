@@ -1,24 +1,32 @@
 import { StatusBar } from 'react-native';
 import { StyleSheet, Text, View, TouchableOpacity, Alert, ScrollView } from 'react-native';
 import { useState, useEffect } from 'react';
+import './global.css';
 import { UserModel } from './models/User';
 import { MedicationModel } from './models/Medication';
 import { AuthService } from './services/AuthService';
 import { MedicationService } from './services/MedicationService';
-import { DosageUnit, DosageForm, FrequencyType } from './types';
+import { MedicationDetailsForm } from './screens/MedicationDetailsForm';
 
 export default function App() {
   const [user, setUser] = useState<UserModel | null>(null);
   const [loading, setLoading] = useState(true);
   const [medicines, setMedicines] = useState<MedicationModel[]>([]);
   const [isCreatingUser, setIsCreatingUser] = useState(false);
+  const [showMedicationForm, setShowMedicationForm] = useState(false);
 
   useEffect(() => {
     const unsubscribe = AuthService.onAuthStateChanged(async (userModel) => {
       if (userModel) {
         setUser(userModel);
-        // Load user's medications
-        await loadMedicines(userModel.uid);
+        // Load user's medications (don't fail if index isn't created yet)
+        try {
+          await loadMedicines(userModel.uid);
+        } catch (error: any) {
+          console.warn('Could not load medications (index may need to be created):', error.message);
+          // Set empty array - medications will load once index is created
+          setMedicines([]);
+        }
       } else {
         setUser(null);
         setMedicines([]);
@@ -64,35 +72,10 @@ export default function App() {
     }
   };
 
-  const addSampleMedicine = async () => {
-    if (!user) return;
-    
-    try {
-      const medication = new MedicationModel({
-        userId: user.uid,
-        name: 'Sample Medicine',
-        genericName: 'Sample Generic',
-        dosage: {
-          amount: 10,
-          unit: 'mg' as DosageUnit,
-          form: 'tablet' as DosageForm,
-        },
-        frequency: {
-          type: 'daily' as FrequencyType,
-          timesPerDay: 1,
-          specificTimes: ['09:00'],
-        },
-        instructions: 'Take with food',
-        startDate: new Date(),
-        isActive: true,
-        notes: 'Sample medication for testing',
-      });
-
-      const medicationId = await MedicationService.createMedication(medication);
-      Alert.alert('Success', 'Medicine added with ID: ' + medicationId);
+  const handleMedicationSave = async () => {
+    setShowMedicationForm(false);
+    if (user) {
       await loadMedicines(user.uid);
-    } catch (error: any) {
-      Alert.alert('Error', error.message);
     }
   };
 
@@ -101,7 +84,13 @@ export default function App() {
       const medications = await MedicationService.getMedicationsByUser(userId);
       setMedicines(medications);
     } catch (error: any) {
-      Alert.alert('Error', error.message);
+      // Don't show alert for index errors - they're expected until index is created
+      if (error.message?.includes('index') || error.message?.includes('failed-precondition')) {
+        console.warn('Medication index not yet created:', error.message);
+        setMedicines([]);
+      } else {
+        Alert.alert('Error', error.message);
+      }
     }
   };
 
@@ -125,6 +114,20 @@ export default function App() {
     );
   }
 
+  // Show medication form if user is logged in and form should be visible
+  if (user && showMedicationForm) {
+    return (
+      <>
+        <MedicationDetailsForm
+          userId={user.uid}
+          onSave={handleMedicationSave}
+          onCancel={() => setShowMedicationForm(false)}
+        />
+        <StatusBar barStyle="dark-content" backgroundColor="#fff" />
+      </>
+    );
+  }
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
       <Text style={styles.title}>Medicine Tracker</Text>
@@ -133,8 +136,8 @@ export default function App() {
         <View style={styles.loggedInContainer}>
           <Text style={styles.welcomeText}>Welcome, {user.email}!</Text>
           
-          <TouchableOpacity style={styles.button} onPress={addSampleMedicine}>
-            <Text style={styles.buttonText}>Add Sample Medicine</Text>
+          <TouchableOpacity style={styles.button} onPress={() => setShowMedicationForm(true)}>
+            <Text style={styles.buttonText}>Add a Medication</Text>
           </TouchableOpacity>
           
           <TouchableOpacity style={styles.button} onPress={() => user && loadMedicines(user.uid)}>

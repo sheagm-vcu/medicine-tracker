@@ -31,8 +31,8 @@ Your React Native app has been successfully configured with Firebase using the n
 ### 1. Add SHA Fingerprints to Firebase Console
 You need to add these fingerprints to your Firebase project:
 
-**SHA-1:** `5D:FA:EA:A5:1A:5C:03:0A:EC:3F:6A:50:29:E7:8C:2B:07:A5:BE:71`
-**SHA-256:** `09:34:D8:A9:E4:97:4E:F1:22:3D:D7:24:4E:20:3D:69:82:4C:3E:7C:60:FF:37:51:DA:C7:1B:1D:B1:27:5B:A7`
+**SHA-1:** `5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25`
+**SHA-256:** `FA:C6:17:45:DC:09:03:78:6F:B9:ED:E6:2A:96:2B:39:9F:73:48:F0:BB:6F:89:9B:83:32:66:75:91:03:3B:9C`
 
 **Steps:**
 1. Go to [Firebase Console](https://console.firebase.google.com/)
