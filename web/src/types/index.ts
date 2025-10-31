@@ -28,6 +28,7 @@ export interface Medication {
   instructions?: string;
   startDate: Date;
   endDate?: Date;
+  refillDate?: Date;
   isActive: boolean;
   sideEffects?: string[];
   notes?: string;
@@ -37,9 +38,10 @@ export interface Medication {
 }
 
 export interface Dosage {
-  amount: number;
-  unit: DosageUnit;
+  amount: number; // Strength amount per unit
+  unit: DosageUnit; // Strength unit (mg, g, ml, etc.)
   form: DosageForm;
+  quantity?: number; // How many units/pills to take
 }
 
 export interface Frequency {
@@ -48,6 +50,7 @@ export interface Frequency {
   daysOfWeek?: DayOfWeek[];
   interval?: number; // in hours
   specificTimes?: string[]; // HH:MM format
+  timeOfDay?: string; // HH:MM format - primary time of day
 }
 
 export interface Reminder {
@@ -59,8 +62,8 @@ export interface Reminder {
 }
 
 // Enums
-export type DosageUnit = 'mg' | 'g' | 'ml' | 'tablets' | 'capsules' | 'drops' | 'puffs' | 'units';
-export type DosageForm = 'tablet' | 'capsule' | 'liquid' | 'injection' | 'inhaler' | 'patch' | 'cream' | 'drops';
+export type DosageUnit = 'mg' | 'g' | 'ml' | 'tablets' | 'capsules' | 'puffs' | 'units';
+export type DosageForm = 'tablet' | 'capsule' | 'liquid' | 'injection' | 'inhaler' | 'patch' | 'cream';
 export type FrequencyType = 'daily' | 'weekly' | 'as_needed' | 'custom';
 export type DayOfWeek = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
 
@@ -76,17 +79,20 @@ export interface ApiResponse<T> {
 export interface MedicationFormData {
   name: string;
   genericName?: string;
-  dosageAmount: number;
-  dosageUnit: DosageUnit;
+  dosageAmount: number; // Strength amount
+  dosageUnit: DosageUnit; // Strength unit
   dosageForm: DosageForm;
+  dosageQuantity?: number; // How many units to take
   frequencyType: FrequencyType;
   timesPerDay?: number;
   daysOfWeek?: DayOfWeek[];
   interval?: number;
   specificTimes?: string[];
+  timeOfDay?: string; // HH:MM format
   instructions?: string;
   startDate: Date;
   endDate?: Date;
+  refillDate?: Date;
   sideEffects?: string[];
   notes?: string;
   reminders?: Omit<Reminder, 'id'>[];

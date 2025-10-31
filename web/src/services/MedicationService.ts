@@ -19,6 +19,25 @@ import type { MedicationFilters, PaginationOptions } from '../types';
 export class MedicationService {
   private static readonly COLLECTION_NAME = 'medications';
 
+  // Helper function to remove undefined values from objects (Firestore doesn't accept undefined)
+  private static removeUndefinedValues(obj: any): any {
+    if (obj === null || typeof obj !== 'object') {
+      return obj;
+    }
+    
+    if (Array.isArray(obj)) {
+      return obj.map(item => this.removeUndefinedValues(item));
+    }
+    
+    const cleaned: any = {};
+    for (const [key, value] of Object.entries(obj)) {
+      if (value !== undefined) {
+        cleaned[key] = this.removeUndefinedValues(value);
+      }
+    }
+    return cleaned;
+  }
+
   static async createMedication(medication: MedicationModel): Promise<string> {
     try {
       const validation = medication.validate();
@@ -26,12 +45,24 @@ export class MedicationService {
         throw new Error(`Validation failed: ${validation.errors.join(', ')}`);
       }
 
+      // Remove id from data if it exists (shouldn't be in Firestore document)
+      const firestoreData = medication.toFirestoreData();
+      const { id, ...dataWithoutId } = firestoreData;
+      
+      // Clean frequency object to remove undefined values
+      if (dataWithoutId.frequency) {
+        dataWithoutId.frequency = this.removeUndefinedValues(dataWithoutId.frequency);
+      }
+      
+      const cleanedData = this.removeUndefinedValues(dataWithoutId);
+      
       const docRef = await addDoc(collection(db, this.COLLECTION_NAME), {
-        ...medication.toFirestoreData(),
+        ...cleanedData,
         createdAt: Timestamp.fromDate(medication.createdAt),
         updatedAt: Timestamp.fromDate(medication.updatedAt),
         startDate: Timestamp.fromDate(medication.startDate),
         endDate: medication.endDate ? Timestamp.fromDate(medication.endDate) : null,
+        refillDate: medication.refillDate ? Timestamp.fromDate(medication.refillDate) : null,
       });
 
       return docRef.id;
@@ -48,11 +79,23 @@ export class MedicationService {
         throw new Error(`Validation failed: ${validation.errors.join(', ')}`);
       }
 
+      // Remove id from data if it exists (shouldn't be in Firestore document)
+      const firestoreData = medication.toFirestoreData();
+      const { id: _, ...dataWithoutId } = firestoreData;
+      
+      // Clean frequency object to remove undefined values
+      if (dataWithoutId.frequency) {
+        dataWithoutId.frequency = this.removeUndefinedValues(dataWithoutId.frequency);
+      }
+      
+      const cleanedData = this.removeUndefinedValues(dataWithoutId);
+      
       await updateDoc(doc(db, this.COLLECTION_NAME, id), {
-        ...medication.toFirestoreData(),
+        ...cleanedData,
         updatedAt: Timestamp.fromDate(medication.updatedAt),
         startDate: Timestamp.fromDate(medication.startDate),
         endDate: medication.endDate ? Timestamp.fromDate(medication.endDate) : null,
+        refillDate: medication.refillDate ? Timestamp.fromDate(medication.refillDate) : null,
       });
     } catch (error) {
       console.error('Error updating medication:', error);
@@ -62,10 +105,13 @@ export class MedicationService {
 
   static async deleteMedication(id: string): Promise<void> {
     try {
+      if (!id || id.trim() === '') {
+        throw new Error('Invalid medication ID');
+      }
       await deleteDoc(doc(db, this.COLLECTION_NAME, id));
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error deleting medication:', error);
-      throw new Error('Failed to delete medication');
+      throw new Error(error.message || 'Failed to delete medication');
     }
   }
 

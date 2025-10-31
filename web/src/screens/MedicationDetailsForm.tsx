@@ -14,8 +14,8 @@ interface MedicationDetailsFormProps {
   initialData?: MedicationModel;
 }
 
-const DOSAGE_UNITS: DosageUnit[] = ['mg', 'g', 'ml', 'tablets', 'capsules', 'drops', 'puffs', 'units'];
-const DOSAGE_FORMS: DosageForm[] = ['tablet', 'capsule', 'liquid', 'injection', 'inhaler', 'patch', 'cream', 'drops'];
+const DOSAGE_UNITS: DosageUnit[] = ['mg', 'g', 'ml', 'tablets', 'capsules', 'puffs', 'units'];
+const DOSAGE_FORMS: DosageForm[] = ['tablet', 'capsule', 'liquid', 'injection', 'inhaler', 'patch', 'cream'];
 const FREQUENCY_TYPES: FrequencyType[] = ['daily', 'weekly', 'as_needed', 'custom'];
 const DAYS_OF_WEEK: DayOfWeek[] = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
@@ -29,14 +29,17 @@ export function MedicationDetailsForm({ userId, onSave, onCancel, initialData }:
         dosageAmount: initialData.dosage.amount,
         dosageUnit: initialData.dosage.unit,
         dosageForm: initialData.dosage.form,
+        dosageQuantity: initialData.dosage.quantity || 1,
         frequencyType: initialData.frequency.type,
         timesPerDay: initialData.frequency.timesPerDay,
         daysOfWeek: initialData.frequency.daysOfWeek,
         interval: initialData.frequency.interval,
         specificTimes: initialData.frequency.specificTimes,
+        timeOfDay: initialData.frequency.timeOfDay,
         instructions: initialData.instructions || '',
         startDate: initialData.startDate,
         endDate: initialData.endDate,
+        refillDate: initialData.refillDate,
         sideEffects: initialData.sideEffects || [],
         notes: initialData.notes || '',
       };
@@ -47,6 +50,7 @@ export function MedicationDetailsForm({ userId, onSave, onCancel, initialData }:
       dosageAmount: 1,
       dosageUnit: 'mg',
       dosageForm: 'tablet',
+      dosageQuantity: 1,
       frequencyType: 'daily',
       timesPerDay: 1,
       specificTimes: ['09:00'],
@@ -57,6 +61,7 @@ export function MedicationDetailsForm({ userId, onSave, onCancel, initialData }:
 
   const [specificTime, setSpecificTime] = useState('');
   const [selectedDays, setSelectedDays] = useState<DayOfWeek[]>(formData.daysOfWeek || []);
+  const [isActive, setIsActive] = useState(initialData ? initialData.isActive : true);
 
   const toggleDay = (day: DayOfWeek) => {
     setSelectedDays(prev => 
@@ -95,6 +100,7 @@ export function MedicationDetailsForm({ userId, onSave, onCancel, initialData }:
       };
 
       const medication = MedicationModel.fromFormData(updatedFormData, userId);
+      medication.isActive = isActive; // Set active status from checkbox
       const validation = medication.validate();
 
       if (!validation.isValid) {
@@ -124,8 +130,12 @@ export function MedicationDetailsForm({ userId, onSave, onCancel, initialData }:
     <div className="min-h-screen bg-slate-50">
       <Container>
         <div className="py-6">
-          <h1 className="text-3xl font-bold mb-2 text-slate-900">Medication Details</h1>
-          <p className="text-slate-600 mb-6">Add a new medication to track</p>
+          <h1 className="text-3xl font-bold mb-2 text-slate-900">
+            {initialData ? 'Edit Medication' : 'Add New Medication'}
+          </h1>
+          <p className="text-slate-600 mb-6">
+            {initialData ? 'Update medication details' : 'Add a new medication to track'}
+          </p>
 
           <Card className="mb-5">
             <div className="mb-4 pb-3 border-b border-slate-200">
@@ -155,54 +165,82 @@ export function MedicationDetailsForm({ userId, onSave, onCancel, initialData }:
               <p className="text-sm text-slate-500 mt-1">Specify how much to take</p>
             </div>
             
-            <div className="grid grid-cols-2 gap-4 mb-4">
-              <Input
-                label="Amount *"
-                type="number"
-                value={formData.dosageAmount?.toString() || ''}
-                onChange={(e) => {
-                  const num = parseFloat(e.target.value) || 0;
-                  setFormData(prev => ({ ...prev, dosageAmount: num }));
-                }}
-                placeholder="1"
-              />
-
+            <div className="space-y-4">
               <div>
-                <label className="block text-sm font-semibold mb-2 text-slate-700">Unit *</label>
-                <div className="flex flex-wrap gap-2">
-                  {DOSAGE_UNITS.map((unit) => (
-                    <button
-                      key={unit}
-                      onClick={() => setFormData(prev => ({ ...prev, dosageUnit: unit }))}
-                      className={`px-4 py-2.5 rounded-xl ${
-                        formData.dosageUnit === unit 
-                          ? 'bg-blue-600 text-white shadow-md' 
-                          : 'bg-slate-100 border border-slate-300 text-slate-700'
-                      } font-semibold hover:opacity-90`}
-                    >
-                      {unit}
-                    </button>
-                  ))}
+                <label className="block text-sm font-semibold mb-2 text-slate-700">Strength *</label>
+                <p className="text-xs text-slate-500 mb-2">Strength of one unit</p>
+                <div className="flex gap-2 items-start">
+                  <input
+                    type="number"
+                    value={formData.dosageAmount?.toString() || ''}
+                    onChange={(e) => {
+                      const num = parseFloat(e.target.value) || 0;
+                      setFormData(prev => ({ ...prev, dosageAmount: num }));
+                    }}
+                    placeholder="125"
+                    className="w-32 border border-slate-300 rounded-xl px-4 py-3 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                  <div className="flex-1">
+                    <label className="block text-xs font-medium mb-2 text-slate-600">Unit:</label>
+                    <div className="flex flex-wrap gap-2">
+                      {DOSAGE_UNITS.map((unit) => (
+                        <button
+                          key={unit}
+                          type="button"
+                          onClick={() => setFormData(prev => ({ ...prev, dosageUnit: unit }))}
+                          className={`px-3 py-2 rounded-lg text-sm ${
+                            formData.dosageUnit === unit 
+                              ? 'bg-blue-600 text-white shadow-md' 
+                              : 'bg-slate-100 border border-slate-300 text-slate-700'
+                          } font-medium hover:opacity-90`}
+                        >
+                          {unit}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div>
-              <label className="block text-sm font-semibold mb-2 text-slate-700">Form *</label>
-              <div className="flex flex-wrap gap-2">
-                {DOSAGE_FORMS.map((form) => (
-                  <button
-                    key={form}
-                    onClick={() => setFormData(prev => ({ ...prev, dosageForm: form }))}
-                    className={`px-4 py-2.5 rounded-xl capitalize ${
-                      formData.dosageForm === form 
-                        ? 'bg-blue-600 text-white shadow-md' 
-                        : 'bg-slate-100 border border-slate-300 text-slate-700'
-                    } font-semibold hover:opacity-90`}
-                  >
-                    {form}
-                  </button>
-                ))}
+              <div>
+                <label className="block text-sm font-semibold mb-2 text-slate-700">Dosage *</label>
+                <p className="text-xs text-slate-500 mb-2">How many units to take</p>
+                <div className="flex gap-2 items-start">
+                  <div className="w-32">
+                    <input
+                      type="number"
+                      min="1"
+                      value={formData.dosageQuantity?.toString() || '1'}
+                      onChange={(e) => {
+                        const num = parseInt(e.target.value) || 1;
+                        setFormData(prev => ({ ...prev, dosageQuantity: num }));
+                      }}
+                      placeholder="2"
+                      className="w-full border border-slate-300 rounded-xl px-4 py-3 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      required
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-xs font-medium mb-2 text-slate-600">Form:</label>
+                    <div className="flex flex-wrap gap-2">
+                      {DOSAGE_FORMS.map((form) => (
+                        <button
+                          key={form}
+                          type="button"
+                          onClick={() => setFormData(prev => ({ ...prev, dosageForm: form }))}
+                          className={`px-3 py-2 rounded-lg text-sm capitalize ${
+                            formData.dosageForm === form 
+                              ? 'bg-blue-600 text-white shadow-md' 
+                              : 'bg-slate-100 border border-slate-300 text-slate-700'
+                          } font-medium hover:opacity-90`}
+                        >
+                          {form}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </Card>
@@ -219,7 +257,15 @@ export function MedicationDetailsForm({ userId, onSave, onCancel, initialData }:
                 {FREQUENCY_TYPES.map((type) => (
                   <button
                     key={type}
-                    onClick={() => setFormData(prev => ({ ...prev, frequencyType: type }))}
+                    onClick={() => {
+                      setFormData(prev => ({ ...prev, frequencyType: type }));
+                      // Clear daysOfWeek when switching away from weekly
+                      if (type !== 'weekly') {
+                        setSelectedDays([]);
+                      } else if (formData.daysOfWeek && formData.daysOfWeek.length > 0) {
+                        setSelectedDays(formData.daysOfWeek);
+                      }
+                    }}
                     className={`px-4 py-2.5 rounded-xl capitalize ${
                       formData.frequencyType === type 
                         ? 'bg-blue-600 text-white shadow-md' 
@@ -233,16 +279,28 @@ export function MedicationDetailsForm({ userId, onSave, onCancel, initialData }:
             </div>
 
             {formData.frequencyType === 'daily' && (
-              <Input
-                label="Times Per Day"
-                type="number"
-                value={formData.timesPerDay?.toString() || ''}
-                onChange={(e) => {
-                  const num = parseInt(e.target.value) || 1;
-                  setFormData(prev => ({ ...prev, timesPerDay: num }));
-                }}
-                placeholder="1"
-              />
+              <>
+                <Input
+                  label="Times Per Day"
+                  type="number"
+                  value={formData.timesPerDay?.toString() || ''}
+                  onChange={(e) => {
+                    const num = parseInt(e.target.value) || 1;
+                    setFormData(prev => ({ ...prev, timesPerDay: num }));
+                  }}
+                  placeholder="1"
+                />
+                <div className="mb-4">
+                  <label className="block text-sm font-semibold mb-2 text-slate-700">Time of Day</label>
+                  <input
+                    type="time"
+                    value={formData.timeOfDay || ''}
+                    onChange={(e) => setFormData(prev => ({ ...prev, timeOfDay: e.target.value }))}
+                    className="w-full md:w-auto border border-slate-300 rounded-xl px-4 py-3 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Preferred time to take this medication (optional)</p>
+                </div>
+              </>
             )}
 
             {formData.frequencyType === 'weekly' && (
@@ -300,8 +358,87 @@ export function MedicationDetailsForm({ userId, onSave, onCancel, initialData }:
 
           <Card className="mb-5">
             <div className="mb-4 pb-3 border-b border-slate-200">
-              <h2 className="text-xl font-bold text-slate-900">Additional Information</h2>
-              <p className="text-sm text-slate-500 mt-1">Instructions and notes</p>
+              <h2 className="text-xl font-bold text-slate-900">Date Range & Refill</h2>
+              <p className="text-sm text-slate-500 mt-1">When to start, stop, and refill this medication</p>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div>
+                <label className="block text-sm font-semibold mb-2 text-slate-700">Start Date *</label>
+                <input
+                  type="date"
+                  value={formData.startDate ? new Date(formData.startDate).toISOString().split('T')[0] : ''}
+                  onChange={(e) => {
+                    const date = e.target.value ? new Date(e.target.value) : new Date();
+                    setFormData(prev => ({ ...prev, startDate: date }));
+                  }}
+                  className="w-full border border-slate-300 rounded-xl px-4 py-3 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+                <p className="text-xs text-slate-500 mt-1">When you should start taking this medication</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold mb-2 text-slate-700">End Date</label>
+                <input
+                  type="date"
+                  value={formData.endDate ? new Date(formData.endDate).toISOString().split('T')[0] : ''}
+                  onChange={(e) => {
+                    const date = e.target.value ? new Date(e.target.value) : undefined;
+                    setFormData(prev => ({ ...prev, endDate: date }));
+                  }}
+                  className="w-full border border-slate-300 rounded-xl px-4 py-3 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-xs text-slate-500 mt-1">When to stop taking (optional)</p>
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-semibold mb-2 text-slate-700">Refill Date</label>
+              <input
+                type="date"
+                value={formData.refillDate ? new Date(formData.refillDate).toISOString().split('T')[0] : ''}
+                onChange={(e) => {
+                  const date = e.target.value ? new Date(e.target.value) : undefined;
+                  setFormData(prev => ({ ...prev, refillDate: date }));
+                }}
+                className="w-full border border-slate-300 rounded-xl px-4 py-3 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <p className="text-xs text-slate-500 mt-1">When to refill this medication (optional)</p>
+            </div>
+
+            {formData.endDate && formData.startDate && new Date(formData.endDate) <= new Date(formData.startDate) && (
+              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-sm text-red-700">⚠️ End date must be after start date</p>
+              </div>
+            )}
+          </Card>
+
+          <Card className="mb-5">
+            <div className="mb-4 pb-3 border-b border-slate-200">
+              <h2 className="text-xl font-bold text-slate-900">Status & Additional Information</h2>
+              <p className="text-sm text-slate-500 mt-1">Medication status and extra details</p>
+            </div>
+            
+            <div className="mb-4">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isActive}
+                  onChange={(e) => setIsActive(e.target.checked)}
+                  className="w-5 h-5 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
+                />
+                <div>
+                  <span className="block text-sm font-semibold text-slate-700">
+                    Active Medication
+                  </span>
+                  <span className="text-xs text-slate-500">
+                    {isActive 
+                      ? 'This medication is currently active and will be tracked' 
+                      : 'This medication is inactive and will not appear in active medication lists'}
+                  </span>
+                </div>
+              </label>
             </div>
             
             <Input

@@ -20,6 +20,7 @@ export class MedicationModel {
   public instructions?: string;
   public startDate: Date;
   public endDate?: Date;
+  public refillDate?: Date;
   public isActive: boolean;
   public sideEffects?: string[];
   public notes?: string;
@@ -37,6 +38,7 @@ export class MedicationModel {
     this.instructions = data.instructions;
     this.startDate = data.startDate || new Date();
     this.endDate = data.endDate;
+    this.refillDate = data.refillDate;
     this.isActive = data.isActive ?? true;
     this.sideEffects = data.sideEffects || [];
     this.notes = data.notes;
@@ -52,12 +54,14 @@ export class MedicationModel {
       daysOfWeek: formData.daysOfWeek,
       interval: formData.interval,
       specificTimes: formData.specificTimes,
+      timeOfDay: formData.timeOfDay,
     };
 
     const dosage: Dosage = {
       amount: formData.dosageAmount,
       unit: formData.dosageUnit,
       form: formData.dosageForm,
+      quantity: formData.dosageQuantity || 1,
     };
 
     const reminders: Reminder[] = (formData.reminders || []).map((reminder, index) => ({
@@ -74,6 +78,7 @@ export class MedicationModel {
       instructions: formData.instructions,
       startDate: formData.startDate,
       endDate: formData.endDate,
+      refillDate: formData.refillDate,
       sideEffects: formData.sideEffects,
       notes: formData.notes,
       reminders,
@@ -85,6 +90,7 @@ export class MedicationModel {
       amount: 1,
       unit: 'mg',
       form: 'tablet',
+      quantity: 1,
     };
   }
 
@@ -103,6 +109,7 @@ export class MedicationModel {
       amount: formData.dosageAmount,
       unit: formData.dosageUnit,
       form: formData.dosageForm,
+      quantity: formData.dosageQuantity || 1,
     };
     this.frequency = {
       type: formData.frequencyType,
@@ -110,10 +117,12 @@ export class MedicationModel {
       daysOfWeek: formData.daysOfWeek,
       interval: formData.interval,
       specificTimes: formData.specificTimes,
+      timeOfDay: formData.timeOfDay,
     };
     this.instructions = formData.instructions;
     this.startDate = formData.startDate;
     this.endDate = formData.endDate;
+    this.refillDate = formData.refillDate;
     this.sideEffects = formData.sideEffects;
     this.notes = formData.notes;
     this.updatedAt = new Date();
@@ -151,7 +160,11 @@ export class MedicationModel {
   }
 
   getDosageString(): string {
-    return `${this.dosage.amount} ${this.dosage.unit} ${this.dosage.form}`;
+    const strength = `${this.dosage.amount} ${this.dosage.unit}`;
+    const quantity = this.dosage.quantity && this.dosage.quantity > 1 
+      ? `${this.dosage.quantity} ${this.dosage.form}s` 
+      : `1 ${this.dosage.form}`;
+    return `${quantity} of ${strength} each`;
   }
 
   getFrequencyString(): string {
@@ -187,6 +200,7 @@ export class MedicationModel {
       instructions: this.instructions,
       startDate: this.startDate,
       endDate: this.endDate,
+      refillDate: this.refillDate,
       isActive: this.isActive,
       sideEffects: this.sideEffects,
       notes: this.notes,
@@ -202,11 +216,15 @@ export class MedicationModel {
       userId: data.userId,
       name: data.name,
       genericName: data.genericName,
-      dosage: data.dosage,
+      dosage: {
+        ...data.dosage,
+        quantity: data.dosage?.quantity || 1, // Default to 1 if not present
+      },
       frequency: data.frequency,
       instructions: data.instructions,
       startDate: data.startDate?.toDate?.() || (data.startDate instanceof Date ? data.startDate : new Date()),
       endDate: data.endDate?.toDate?.() || (data.endDate instanceof Date ? data.endDate : undefined),
+      refillDate: data.refillDate?.toDate?.() || (data.refillDate instanceof Date ? data.refillDate : undefined),
       isActive: data.isActive,
       sideEffects: data.sideEffects,
       notes: data.notes,
