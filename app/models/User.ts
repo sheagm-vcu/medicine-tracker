@@ -1,4 +1,4 @@
-import { User as FirebaseUser } from 'firebase/auth';
+import { FirebaseAuthTypes } from '@react-native-firebase/auth';
 import { User, UserPreferences } from '../types';
 
 export class UserModel {
@@ -20,7 +20,7 @@ export class UserModel {
     this.preferences = data.preferences || this.getDefaultPreferences();
   }
 
-  static fromFirebaseUser(firebaseUser: FirebaseUser): UserModel {
+  static fromFirebaseUser(firebaseUser: FirebaseAuthTypes.User): UserModel {
     return new UserModel({
       uid: firebaseUser.uid,
       email: firebaseUser.email || '',
@@ -41,7 +41,7 @@ export class UserModel {
   }
 
   updatePreferences(preferences: Partial<UserPreferences>): void {
-    this.preferences = { ...this.preferences, ...preferences };
+    this.preferences = { ...this.preferences, ...preferences } as UserPreferences;
   }
 
   updateLastLogin(): void {

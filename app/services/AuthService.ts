@@ -34,7 +34,12 @@ export class AuthService {
       await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
 
       // Get the user ID token
-      const { idToken } = await GoogleSignin.signIn();
+      const signInResult = await GoogleSignin.signIn();
+      const idToken = signInResult.data?.idToken;
+      
+      if (!idToken) {
+        throw new Error('No ID token received from Google Sign-in');
+      }
 
       // Create a Google credential with the token
       const googleCred = auth.GoogleAuthProvider.credential(idToken);

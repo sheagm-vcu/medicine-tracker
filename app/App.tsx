@@ -1,4 +1,4 @@
-import { StatusBar } from 'expo-status-bar';
+import { StatusBar } from 'react-native';
 import { StyleSheet, Text, View, TouchableOpacity, Alert, ScrollView } from 'react-native';
 import { useState, useEffect } from 'react';
 import { UserModel } from './models/User';
@@ -120,7 +120,7 @@ export default function App() {
     return (
       <View style={styles.container}>
         <Text>Loading...</Text>
-        <StatusBar style="auto" />
+        <StatusBar barStyle="dark-content" backgroundColor="#fff" />
       </View>
     );
   }
@@ -196,7 +196,7 @@ export default function App() {
         </View>
       )}
       
-      <StatusBar style="auto" />
+      <StatusBar barStyle="dark-content" backgroundColor="#fff" />
     </ScrollView>
   );
 }
