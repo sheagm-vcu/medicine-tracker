@@ -27,6 +27,8 @@ export class MedicationModel {
   public createdAt: Date;
   public updatedAt: Date;
   public reminders?: Reminder[];
+  public defaultTime: string; // HH:MM format, default is 09:00 EST
+  public preferredTime?: string; // HH:MM format, preferred time for this medication
 
   constructor(data: Partial<Medication> = {}) {
     this.id = data.id || '';
@@ -45,6 +47,8 @@ export class MedicationModel {
     this.createdAt = data.createdAt || new Date();
     this.updatedAt = data.updatedAt || new Date();
     this.reminders = data.reminders || [];
+    this.defaultTime = data.defaultTime || '09:00'; // Default 9:00 AM EST
+    this.preferredTime = data.preferredTime;
   }
 
   static fromFormData(formData: MedicationFormData, userId: string): MedicationModel {
@@ -207,6 +211,8 @@ export class MedicationModel {
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,
       reminders: this.reminders,
+      defaultTime: this.defaultTime,
+      preferredTime: this.preferredTime,
     };
   }
 
@@ -231,6 +237,8 @@ export class MedicationModel {
       createdAt: data.createdAt?.toDate?.() || (data.createdAt instanceof Date ? data.createdAt : new Date()),
       updatedAt: data.updatedAt?.toDate?.() || (data.updatedAt instanceof Date ? data.updatedAt : new Date()),
       reminders: data.reminders,
+      defaultTime: data.defaultTime || '09:00',
+      preferredTime: data.preferredTime,
     });
   }
 

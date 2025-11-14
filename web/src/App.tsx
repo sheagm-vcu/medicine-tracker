@@ -1,12 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { UserModel } from './models/User';
 import { MedicationModel } from './models/Medication';
 import { AuthService } from './services/AuthService';
 import { MedicationService } from './services/MedicationService';
+import { UserService } from './services/UserService';
 import { Button } from './components/Button';
 import { Card } from './components/Card';
 import { Container } from './components/Container';
 import { MedicationDetailsForm } from './screens/MedicationDetailsForm';
+import { AccountSettings } from './screens/AccountSettings';
+import { NotificationPopover } from './components/NotificationPopover';
+import { RefillNotificationPopover } from './components/RefillNotificationPopover';
 import './style.css';
 
 function App() {
@@ -16,15 +20,39 @@ function App() {
   const [isCreatingUser, setIsCreatingUser] = useState(false);
   const [showMedicationForm, setShowMedicationForm] = useState(false);
   const [editingMedication, setEditingMedication] = useState<MedicationModel | null>(null);
-  const [deleteConfirmation, setDeleteConfirmation] = useState<{ show: boolean; medication: MedicationModel | null }>({
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{ show: boolean; medication: MedicationModel | null; fromNotification?: boolean }>({
     show: false,
     medication: null,
+    fromNotification: false,
   });
+  const [notifications, setNotifications] = useState<MedicationModel[]>([]);
+  const [refillNotifications, setRefillNotifications] = useState<MedicationModel[]>([]);
+  const notifiedTodayRef = useRef<Set<string>>(new Set());
+  const refillNotifiedRef = useRef<Set<string>>(new Set()); // medicationId-date key for refill reminders
+  const [currentView, setCurrentView] = useState<'main' | 'account'>('main');
+  const snoozedNotificationsRef = useRef<Map<string, number>>(new Map()); // medicationId -> snoozeUntil timestamp
+  const snoozedRefillNotificationsRef = useRef<Map<string, number>>(new Map()); // medicationId -> snoozeUntil timestamp
+  const refillDateUpdateTimeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map()); // medicationId -> timeout
+  const previousRefillDatesRef = useRef<Map<string, Date | null>>(new Map()); // medicationId -> previous refill date
 
   useEffect(() => {
     const unsubscribe = AuthService.onAuthStateChanged(async (userModel) => {
       if (userModel) {
-        setUser(userModel);
+        // Load full user data from Firestore to get preferences
+        try {
+          const fullUser = await UserService.getUser(userModel.uid);
+          if (fullUser) {
+            setUser(fullUser);
+          } else {
+            // User doesn't exist in Firestore yet, create it
+            await UserService.createOrUpdateUser(userModel);
+            setUser(userModel);
+          }
+        } catch (error: any) {
+          console.warn('Could not load user data:', error.message);
+          setUser(userModel);
+        }
+
         // Load user's medications (don't fail if index isn't created yet)
         try {
           await loadMedicines(userModel.uid);
@@ -36,12 +64,257 @@ function App() {
       } else {
         setUser(null);
         setMedicines([]);
+        setNotifications([]);
+        notifiedTodayRef.current.clear();
+        snoozedNotificationsRef.current.clear();
       }
       setLoading(false);
     });
 
     return () => unsubscribe();
   }, []);
+
+  // Check for medication notifications
+  useEffect(() => {
+    // Reset notifications at midnight - re-enable all medications for the new day
+    const resetNotifications = () => {
+      const now = new Date();
+      const tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(0, 0, 0, 0);
+      const msUntilMidnight = tomorrow.getTime() - now.getTime();
+      
+      setTimeout(() => {
+        console.log('[Notification Reset] Resetting for new day - all active medications can be notified again');
+        notifiedTodayRef.current.clear();
+        refillNotifiedRef.current.clear();
+        snoozedNotificationsRef.current.clear();
+        snoozedRefillNotificationsRef.current.clear();
+        setNotifications([]);
+        setRefillNotifications([]);
+        
+        // Schedule the next reset
+        resetNotifications();
+      }, msUntilMidnight);
+    };
+
+    resetNotifications();
+
+    const checkMedicationTimes = () => {
+      const now = new Date();
+      const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const today = now.toDateString();
+      const currentTimestamp = now.getTime();
+
+      console.log('[Notification Check]', {
+        currentTime,
+        currentTimestamp: new Date(currentTimestamp).toLocaleString(),
+        totalMedications: medicines.length,
+        activeMedications: medicines.filter(m => m.isActive).length,
+      });
+
+      const medicationsToNotify: MedicationModel[] = [];
+
+      medicines.forEach((medication) => {
+        if (!medication.isActive) {
+          console.log(`[Notification Check] Skipping ${medication.name} - not active`);
+          return;
+        }
+
+        // Check if this medication is currently snoozed
+        const snoozeUntil = snoozedNotificationsRef.current.get(medication.id);
+        if (snoozeUntil && currentTimestamp < snoozeUntil) {
+          const snoozeRemaining = Math.ceil((snoozeUntil - currentTimestamp) / 1000);
+          console.log(`[Notification Check] Skipping ${medication.name} - snoozed for ${snoozeRemaining} more seconds`);
+          return; // Still snoozed
+        }
+
+        // Get all times for this medication from its frequency settings
+        const timesToCheck: string[] = [];
+        
+        // Priority order: timeOfDay > specificTimes > preferredTime > defaultTime > user defaultTime
+        // First, check timeOfDay (highest priority for daily schedules)
+        if (medication.frequency?.timeOfDay) {
+          const timeOfDay = medication.frequency.timeOfDay;
+          if (typeof timeOfDay === 'string' && timeOfDay.match(/^\d{2}:\d{2}$/)) {
+            timesToCheck.push(timeOfDay);
+          }
+        }
+        
+        // If no timeOfDay, check frequency-specific times (for custom schedules)
+        if (timesToCheck.length === 0 && medication.frequency?.specificTimes && Array.isArray(medication.frequency.specificTimes) && medication.frequency.specificTimes.length > 0) {
+          // Filter out any invalid times and add valid ones
+          const validTimes = medication.frequency.specificTimes.filter(time => time && typeof time === 'string' && time.match(/^\d{2}:\d{2}$/));
+          if (validTimes.length > 0) {
+            timesToCheck.push(...validTimes);
+          }
+        }
+        
+        // If still no times found in frequency, check medication-level times
+        if (timesToCheck.length === 0) {
+          if (medication.preferredTime && typeof medication.preferredTime === 'string' && medication.preferredTime.match(/^\d{2}:\d{2}$/)) {
+            timesToCheck.push(medication.preferredTime);
+          } else if (medication.defaultTime && typeof medication.defaultTime === 'string' && medication.defaultTime.match(/^\d{2}:\d{2}$/)) {
+            timesToCheck.push(medication.defaultTime);
+          } else {
+            // Finally, use user's defaultTime as fallback
+            const userDefaultTime = user?.preferences?.defaultTime || '09:00';
+            timesToCheck.push(userDefaultTime);
+          }
+        }
+
+        console.log(`[Notification Check] Checking ${medication.name}:`, {
+          frequencyType: medication.frequency.type,
+          specificTimes: medication.frequency.specificTimes,
+          timeOfDay: medication.frequency.timeOfDay,
+          timesPerDay: medication.frequency.timesPerDay,
+          preferredTime: medication.preferredTime,
+          defaultTime: medication.defaultTime,
+          timesToCheck,
+          currentTime,
+        });
+
+        // Check each time for this medication
+        for (const timeToCheck of timesToCheck) {
+          const notificationKey = `${medication.id}-${today}-${timeToCheck}`;
+
+          // Check if we've already notified for this medication today at this time
+          if (notifiedTodayRef.current.has(notificationKey)) {
+            console.log(`[Notification Check] Skipping ${medication.name} - already notified today at ${timeToCheck}`);
+            continue;
+          }
+
+          // Check if current time matches the medication time
+          if (timeToCheck === currentTime) {
+            console.log(`[Notification Check] ✓ Triggering notification for ${medication.name} at ${timeToCheck}`);
+            medicationsToNotify.push(medication);
+            notifiedTodayRef.current.add(notificationKey);
+            break; // Only notify once per medication, even if multiple times match
+          }
+        }
+      });
+
+      if (medicationsToNotify.length > 0) {
+        console.log(`[Notification Check] Adding ${medicationsToNotify.length} notification(s):`, 
+          medicationsToNotify.map(m => m.name));
+        setNotifications((prev) => [...prev, ...medicationsToNotify]);
+      } else {
+        console.log('[Notification Check] No medications to notify at this time');
+      }
+    };
+
+    // Check immediately
+    checkMedicationTimes();
+
+    // Check every 5 seconds
+    const interval = setInterval(checkMedicationTimes, 5000);
+
+    return () => clearInterval(interval);
+  }, [medicines, user]);
+
+  // Check for refill reminders - trigger 30 seconds after refill date is updated
+  useEffect(() => {
+    const daysBefore = user?.preferences?.refillReminderDaysBefore || 1;
+
+    // Check for refill date changes and schedule reminders
+    medicines.forEach((medication) => {
+      if (!medication.isActive || !medication.refillDate) {
+        // Clear any existing timeout if medication becomes inactive or loses refill date
+        const existingTimeout = refillDateUpdateTimeoutsRef.current.get(medication.id);
+        if (existingTimeout) {
+          clearTimeout(existingTimeout);
+          refillDateUpdateTimeoutsRef.current.delete(medication.id);
+        }
+        previousRefillDatesRef.current.set(medication.id, null);
+        return;
+      }
+
+      const currentRefillDate = new Date(medication.refillDate);
+      currentRefillDate.setHours(0, 0, 0, 0);
+      const previousRefillDate = previousRefillDatesRef.current.get(medication.id);
+
+      // Check if refill date has changed or is new
+      const refillDateChanged = !previousRefillDate || 
+        previousRefillDate.getTime() !== currentRefillDate.getTime();
+
+      if (refillDateChanged) {
+        console.log(`[Refill Reminder] Refill date updated for ${medication.name}:`, {
+          previousRefillDate: previousRefillDate?.toDateString() || 'none',
+          newRefillDate: currentRefillDate.toDateString(),
+          daysBefore,
+        });
+
+        // Clear any existing timeout for this medication
+        const existingTimeout = refillDateUpdateTimeoutsRef.current.get(medication.id);
+        if (existingTimeout) {
+          clearTimeout(existingTimeout);
+        }
+
+        // Schedule reminder for 30 seconds from now (for demo purposes)
+        const timeout = setTimeout(() => {
+          // Recalculate dates when timeout fires
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const refillDate = new Date(medication.refillDate);
+          refillDate.setHours(0, 0, 0, 0);
+          
+          const reminderDate = new Date(refillDate);
+          reminderDate.setDate(reminderDate.getDate() - daysBefore);
+          reminderDate.setHours(0, 0, 0, 0);
+
+          const daysUntilRefill = Math.ceil((refillDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+          console.log(`[Refill Reminder] 30 seconds elapsed after refill date update for ${medication.name}. Checking if reminder should show...`, {
+            refillDate: refillDate.toDateString(),
+            reminderDate: reminderDate.toDateString(),
+            today: today.toDateString(),
+            daysUntilRefill,
+            daysBefore,
+          });
+
+          // Check if today is the reminder date or if refill is within the reminder window
+          if (today.getTime() === reminderDate.getTime() || daysUntilRefill <= daysBefore) {
+            const notificationKey = `${medication.id}-${today.toDateString()}`;
+            
+            // Check if we've already notified for this medication today
+            if (!refillNotifiedRef.current.has(notificationKey)) {
+              console.log(`[Refill Reminder] ✓ Triggering refill reminder for ${medication.name} (refill date: ${refillDate.toDateString()}, ${daysUntilRefill} day(s) away)`);
+              setRefillNotifications((prev) => {
+                // Only add if not already in notifications
+                if (!prev.find(m => m.id === medication.id)) {
+                  return [...prev, medication];
+                }
+                return prev;
+              });
+              refillNotifiedRef.current.add(notificationKey);
+            } else {
+              console.log(`[Refill Reminder] Skipping ${medication.name} - already notified today`);
+            }
+          } else {
+            console.log(`[Refill Reminder] Not showing reminder for ${medication.name} yet. Reminder date: ${reminderDate.toDateString()}, Today: ${today.toDateString()}, Days until refill: ${daysUntilRefill}`);
+          }
+
+          refillDateUpdateTimeoutsRef.current.delete(medication.id);
+        }, 30000); // 30 seconds
+
+        refillDateUpdateTimeoutsRef.current.set(medication.id, timeout);
+        previousRefillDatesRef.current.set(medication.id, currentRefillDate);
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const daysUntilRefill = Math.ceil((currentRefillDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+        console.log(`[Refill Reminder] Scheduled reminder for ${medication.name} in 30 seconds (refill date: ${currentRefillDate.toDateString()}, ${daysUntilRefill} day(s) away)`);
+      }
+    });
+
+    // Cleanup function
+    return () => {
+      refillDateUpdateTimeoutsRef.current.forEach((timeout) => {
+        clearTimeout(timeout);
+      });
+      refillDateUpdateTimeoutsRef.current.clear();
+    };
+  }, [medicines, user]);
 
   const signIn = async () => {
     try {
@@ -111,10 +384,12 @@ function App() {
     if (window.confirm(`Are you sure you want to permanently delete "${medication.name}"? This action cannot be undone.`)) {
       try {
         await MedicationService.deleteMedication(medication.id);
-        setDeleteConfirmation({ show: false, medication: null });
+        const wasFromNotification = deleteConfirmation.fromNotification;
+        setDeleteConfirmation({ show: false, medication: null, fromNotification: false });
         if (user) {
           await loadMedicines(user.uid);
         }
+        // If it was opened from notification and user deleted, don't re-show notification
       } catch (error: any) {
         alert('Error deleting medication: ' + error.message);
       }
@@ -162,6 +437,19 @@ function App() {
     );
   }
 
+  // Show account settings view
+  if (user && currentView === 'account') {
+    return (
+      <AccountSettings
+        user={user}
+        onBack={() => setCurrentView('main')}
+        onUserUpdate={(updatedUser) => {
+          setUser(updatedUser);
+        }}
+      />
+    );
+  }
+
   // Show medication form if user is logged in and form should be visible
   if (user && showMedicationForm) {
     return (
@@ -186,7 +474,20 @@ function App() {
           {user ? (
             <div className="max-w-4xl mx-auto">
               <div className="mb-6 text-center">
-                <p className="text-lg text-slate-700 mb-6">Welcome, {user.email}!</p>
+                <div className="flex justify-between items-center mb-4">
+                  <div></div>
+                  <p className="text-lg text-slate-700">Welcome, {user.email}!</p>
+                  <button
+                    onClick={() => setCurrentView('account')}
+                    className="text-blue-600 hover:text-blue-700 flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-blue-50 transition-colors"
+                    title="Account Settings"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                    <span className="text-sm font-medium">Account</span>
+                  </button>
+                </div>
                 
                 <div className="flex gap-4 justify-center mb-6">
                   <Button onClick={() => setShowMedicationForm(true)}>
@@ -270,6 +571,149 @@ function App() {
                 </Button>
               </div>
 
+              {/* Refill Reminder Notifications */}
+              {refillNotifications.map((medication, index) => (
+                <RefillNotificationPopover
+                  key={`refill-notification-${medication.id}-${index}`}
+                  medication={medication}
+                  index={refillNotifications.length - 1 - index}
+                  snoozeDuration={user?.preferences?.snoozeDuration || 1}
+                  onDismiss={() => {
+                    setRefillNotifications((prev) => prev.filter((m) => m.id !== medication.id));
+                  }}
+                  onSnooze={(medicationId, durationSeconds) => {
+                    const med = medicines.find(m => m.id === medicationId);
+                    if (!med || !med.refillDate) return;
+                    
+                    const snoozeDurationMinutes = durationSeconds / 60;
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    
+                    // When snoozed, bump the reminder to tomorrow (next day)
+                    const tomorrow = new Date(today);
+                    tomorrow.setDate(tomorrow.getDate() + 1);
+                    const tomorrowKey = `${medicationId}-${tomorrow.toDateString()}`;
+                    
+                    // Remove today's notification key and add tomorrow's
+                    const todayKey = `${medicationId}-${today.toDateString()}`;
+                    refillNotifiedRef.current.delete(todayKey);
+                    refillNotifiedRef.current.add(tomorrowKey);
+                    
+                    setRefillNotifications((prev) => prev.filter((m) => m.id !== medicationId));
+                    
+                    const refillDate = new Date(med.refillDate);
+                    const daysUntilRefill = Math.ceil((refillDate.getTime() - tomorrow.getTime()) / (1000 * 60 * 60 * 24));
+                    
+                    console.log(`[Refill Reminder Snooze] ${med.name} snoozed. Reminder bumped to tomorrow (${tomorrow.toDateString()}). Refill date: ${refillDate.toDateString()} (${daysUntilRefill} day(s) away). Reminder will show again tomorrow at the reminder time.`);
+                  }}
+                  onMedicationRefilled={(medicationId) => {
+                    // Mark as refilled - remove from notifications and prevent re-notification
+                    const med = medicines.find(m => m.id === medicationId);
+                    if (med) {
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0);
+                      const notificationKey = `${medicationId}-${today.toDateString()}`;
+                      refillNotifiedRef.current.add(notificationKey);
+                      
+                      // Also mark future dates to prevent showing again until refill date is updated
+                      const refillDate = med.refillDate ? new Date(med.refillDate) : null;
+                      if (refillDate) {
+                        refillDate.setHours(0, 0, 0, 0);
+                        // Mark all dates from today until refill date as notified
+                        for (let d = new Date(today); d <= refillDate; d.setDate(d.getDate() + 1)) {
+                          const futureKey = `${medicationId}-${d.toDateString()}`;
+                          refillNotifiedRef.current.add(futureKey);
+                        }
+                      }
+                      
+                      console.log(`[Refill Reminder] Medication refilled: ${med.name}. Reminder will NOT show again until the refill date is updated.`);
+                    }
+                    setRefillNotifications((prev) => prev.filter((m) => m.id !== medicationId));
+                  }}
+                />
+              ))}
+
+              {/* Medication Notifications */}
+              {notifications.map((medication, index) => (
+                <NotificationPopover
+                  key={`notification-${medication.id}-${index}`}
+                  medication={medication}
+                  index={notifications.length - 1 - index}
+                  snoozeDuration={user?.preferences?.snoozeDuration || 1}
+                  onDismiss={() => {
+                    setNotifications((prev) => prev.filter((m) => m.id !== medication.id));
+                  }}
+                  onSnooze={(medicationId, durationSeconds) => {
+                    const med = medicines.find(m => m.id === medicationId);
+                    const snoozeUntil = Date.now() + (durationSeconds * 1000);
+                    const snoozeDurationMinutes = durationSeconds / 60;
+                    
+                    snoozedNotificationsRef.current.set(medicationId, snoozeUntil);
+                    setNotifications((prev) => prev.filter((m) => m.id !== medicationId));
+                    
+                    console.log(`[Notification Snooze] ${med?.name || medicationId} snoozed for ${snoozeDurationMinutes} minute(s). Will remind again at ${new Date(snoozeUntil).toLocaleTimeString()}`);
+                    
+                    // Set a timeout to re-trigger the notification after snooze duration
+                    setTimeout(() => {
+                      snoozedNotificationsRef.current.delete(medicationId);
+                      // Re-add the notification after snooze period
+                      const med = medicines.find(m => m.id === medicationId);
+                      if (med && med.isActive) {
+                        setNotifications((prev) => {
+                          // Only add if not already in notifications
+                          if (!prev.find(m => m.id === medicationId)) {
+                            return [...prev, med];
+                          }
+                          return prev;
+                        });
+                        console.log(`[Notification Snooze] Snooze period ended for ${med.name}. Notification re-triggered.`);
+                      }
+                    }, durationSeconds * 1000);
+                  }}
+                  onMedicineTaken={(medicationId) => {
+                    // Mark as taken - remove from notifications and prevent re-notification for today
+                    const med = medicines.find(m => m.id === medicationId);
+                    if (med) {
+                      const now = new Date();
+                      const today = now.toDateString();
+                      // Get all times for this medication (same priority as notification check)
+                      const timesToMark: string[] = [];
+                      
+                      // Priority order: timeOfDay > specificTimes > preferredTime > defaultTime > user defaultTime
+                      if (med.frequency?.timeOfDay) {
+                        timesToMark.push(med.frequency.timeOfDay);
+                      } else if (med.frequency?.specificTimes && med.frequency.specificTimes.length > 0) {
+                        // Mark all specific times for this medication
+                        const validTimes = med.frequency.specificTimes.filter(time => time && typeof time === 'string' && time.match(/^\d{2}:\d{2}$/));
+                        timesToMark.push(...validTimes);
+                      } else if (med.preferredTime) {
+                        timesToMark.push(med.preferredTime);
+                      } else if (med.defaultTime) {
+                        timesToMark.push(med.defaultTime);
+                      } else {
+                        timesToMark.push(user?.preferences?.defaultTime || '09:00');
+                      }
+                      
+                      // Mark all times for this medication as taken today
+                      timesToMark.forEach(timeToCheck => {
+                        const notificationKey = `${medicationId}-${today}-${timeToCheck}`;
+                        notifiedTodayRef.current.add(notificationKey);
+                      });
+                      
+                      console.log(`[Notification] Medicine taken: ${med.name} - marked as taken for today at times: ${timesToMark.join(', ')}`);
+                    }
+                    // Remove from active notifications
+                    setNotifications((prev) => prev.filter((m) => m.id !== medicationId));
+                  }}
+                  onChangeSnoozeDuration={() => {
+                    setCurrentView('account');
+                  }}
+                  onNoLongerTaking={(medication) => {
+                    setDeleteConfirmation({ show: true, medication, fromNotification: true });
+                  }}
+                />
+              ))}
+
               {/* Delete Confirmation Popover */}
               {deleteConfirmation.show && deleteConfirmation.medication && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -307,7 +751,22 @@ function App() {
                       </div>
                       
                       <Button
-                        onClick={() => setDeleteConfirmation({ show: false, medication: null })}
+                        onClick={() => {
+                          const wasFromNotification = deleteConfirmation.fromNotification;
+                          const medicationToRestore = deleteConfirmation.medication;
+                          setDeleteConfirmation({ show: false, medication: null, fromNotification: false });
+                          
+                          // If opened from notification, restore the notification
+                          if (wasFromNotification && medicationToRestore) {
+                            setNotifications((prev) => {
+                              // Only add if not already in notifications
+                              if (!prev.find(m => m.id === medicationToRestore.id)) {
+                                return [...prev, medicationToRestore];
+                              }
+                              return prev;
+                            });
+                          }
+                        }}
                         variant="outline"
                         className="w-full"
                       >

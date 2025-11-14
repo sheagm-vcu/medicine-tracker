@@ -37,6 +37,10 @@ export class UserModel {
       reminderTime: '09:00',
       language: 'en',
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      defaultTime: '09:00', // Default medication time (9:00 AM EST)
+      snoozeDuration: 1, // Default snooze duration in minutes
+      defaultRefillTime: '09:00', // Default refill reminder time (9:00 AM EST)
+      refillReminderDaysBefore: 1, // Default days before refill date to remind
     };
   }
 

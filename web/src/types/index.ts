@@ -15,6 +15,10 @@ export interface UserPreferences {
   reminderTime: string; // HH:MM format
   language: string;
   timezone: string;
+  defaultTime?: string; // HH:MM format, default medication time (defaults to 09:00 EST)
+  snoozeDuration?: number; // Duration in minutes for snooze (defaults to 1 minute)
+  defaultRefillTime?: string; // HH:MM format, default time for refill reminders (defaults to 09:00 EST)
+  refillReminderDaysBefore?: number; // Number of days before refill date to show reminder (defaults to 1 day)
 }
 
 // Medication related types
@@ -35,6 +39,8 @@ export interface Medication {
   createdAt: Date;
   updatedAt: Date;
   reminders?: Reminder[];
+  defaultTime?: string; // HH:MM format, default is 09:00 EST
+  preferredTime?: string; // HH:MM format, preferred time for this medication
 }
 
 export interface Dosage {
