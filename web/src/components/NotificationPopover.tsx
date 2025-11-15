@@ -10,22 +10,35 @@ interface NotificationPopoverProps {
   onChangeSnoozeDuration?: () => void;
   onNoLongerTaking?: (medication: MedicationModel) => void;
   snoozeDuration?: number; // Duration in minutes
+  userDefaultTime?: string; // User's global default time
   index?: number;
 }
 
-export function NotificationPopover({ medication, onDismiss, onSnooze, onMedicineTaken, onChangeSnoozeDuration, onNoLongerTaking, snoozeDuration = 1, index = 0 }: NotificationPopoverProps) {
-  // Get the time to display - same logic as notification check (priority: timeOfDay > specificTimes > preferredTime > defaultTime)
+export function NotificationPopover({ medication, onDismiss, onSnooze, onMedicineTaken, onChangeSnoozeDuration, onNoLongerTaking, snoozeDuration = 1, userDefaultTime = '09:00', index = 0 }: NotificationPopoverProps) {
+  // Get the time to display - same logic as notification check (priority: timeOfDay > specificTimes (if not default) > preferredTime > user defaultTime)
+  // (Ignore medication.defaultTime and default specificTimes as they're just default values, not user-set)
   let timeToTake: string;
   if (medication.frequency?.timeOfDay) {
     timeToTake = medication.frequency.timeOfDay;
-  } else if (medication.frequency?.specificTimes && medication.frequency.specificTimes.length > 0) {
-    timeToTake = medication.frequency.specificTimes[0]; // Show first time
+  } else if (medication.frequency?.specificTimes && Array.isArray(medication.frequency.specificTimes) && medication.frequency.specificTimes.length > 0) {
+    // Check if specificTimes is just the default value ['09:00'] - if so, ignore it
+    const validTimes = medication.frequency.specificTimes.filter(time => time && typeof time === 'string' && time.match(/^\d{2}:\d{2}$/));
+    const isJustDefault = validTimes.length === 1 && validTimes[0] === '09:00' && 
+                          !medication.preferredTime && 
+                          !medication.frequency?.timeOfDay;
+    
+    if (validTimes.length > 0 && !isJustDefault) {
+      // User has explicitly set specificTimes (not just the default)
+      timeToTake = validTimes[0]; // Show first time
+    } else {
+      // Use user's global defaultTime
+      timeToTake = userDefaultTime;
+    }
   } else if (medication.preferredTime) {
     timeToTake = medication.preferredTime;
-  } else if (medication.defaultTime) {
-    timeToTake = medication.defaultTime;
   } else {
-    timeToTake = '09:00'; // Fallback
+    // Use user's global defaultTime
+    timeToTake = userDefaultTime;
   }
   // Stack notifications: first at 16px (1rem) from bottom, then add 220px for each additional notification
   const bottomOffset = 16 + (index * 220); // 220px spacing between notifications (card height + gap)

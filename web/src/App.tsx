@@ -34,6 +34,7 @@ function App() {
   const snoozedRefillNotificationsRef = useRef<Map<string, number>>(new Map()); // medicationId -> snoozeUntil timestamp
   const refillDateUpdateTimeoutsRef = useRef<Map<string, NodeJS.Timeout>>(new Map()); // medicationId -> timeout
   const previousRefillDatesRef = useRef<Map<string, Date | null>>(new Map()); // medicationId -> previous refill date
+  const previousUserDefaultTimeRef = useRef<string | undefined>(undefined); // Track previous user defaultTime
 
   useEffect(() => {
     const unsubscribe = AuthService.onAuthStateChanged(async (userModel) => {
@@ -76,6 +77,43 @@ function App() {
 
   // Check for medication notifications
   useEffect(() => {
+    // Clear notification tracking for medications without explicit times when user's defaultTime changes
+    const currentUserDefaultTime = user?.preferences?.defaultTime;
+    if (previousUserDefaultTimeRef.current !== undefined && 
+        previousUserDefaultTimeRef.current !== currentUserDefaultTime &&
+        currentUserDefaultTime) {
+      console.log(`[Notification] User defaultTime changed from ${previousUserDefaultTimeRef.current} to ${currentUserDefaultTime}. Clearing notification tracking for medications without explicit times.`);
+      
+      // Clear notification keys for medications that don't have explicit times
+      const today = new Date().toDateString();
+      medicines.forEach((medication) => {
+        // Check if medication has explicit times (same logic as notification check)
+        // Ignore default specificTimes ['09:00'] - treat as "not provided"
+        const hasExplicitTime = medication.frequency?.timeOfDay || 
+                                medication.preferredTime ||
+                                (medication.frequency?.specificTimes && 
+                                 Array.isArray(medication.frequency.specificTimes) && 
+                                 medication.frequency.specificTimes.length > 0 &&
+                                 !(medication.frequency.specificTimes.length === 1 && 
+                                   medication.frequency.specificTimes[0] === '09:00' &&
+                                   !medication.preferredTime && 
+                                   !medication.frequency?.timeOfDay));
+        
+        if (!hasExplicitTime) {
+          // Remove old notification keys for this medication
+          const keysToRemove: string[] = [];
+          notifiedTodayRef.current.forEach((key) => {
+            if (key.startsWith(`${medication.id}-${today}-`)) {
+              keysToRemove.push(key);
+            }
+          });
+          keysToRemove.forEach(key => notifiedTodayRef.current.delete(key));
+          console.log(`[Notification] Cleared ${keysToRemove.length} notification key(s) for ${medication.name} to allow re-notification at new default time`);
+        }
+      });
+    }
+    previousUserDefaultTimeRef.current = currentUserDefaultTime;
+
     // Reset notifications at midnight - re-enable all medications for the new day
     const resetNotifications = () => {
       const now = new Date();
@@ -131,8 +169,9 @@ function App() {
 
         // Get all times for this medication from its frequency settings
         const timesToCheck: string[] = [];
+        const userDefaultTime = user?.preferences?.defaultTime || '09:00';
         
-        // Priority order: timeOfDay > specificTimes > preferredTime > defaultTime > user defaultTime
+        // Priority order: timeOfDay > specificTimes (if not default) > preferredTime > user defaultTime
         // First, check timeOfDay (highest priority for daily schedules)
         if (medication.frequency?.timeOfDay) {
           const timeOfDay = medication.frequency.timeOfDay;
@@ -142,10 +181,18 @@ function App() {
         }
         
         // If no timeOfDay, check frequency-specific times (for custom schedules)
+        // BUT: ignore if it's just the default value ['09:00'] - treat as "not provided"
         if (timesToCheck.length === 0 && medication.frequency?.specificTimes && Array.isArray(medication.frequency.specificTimes) && medication.frequency.specificTimes.length > 0) {
           // Filter out any invalid times and add valid ones
           const validTimes = medication.frequency.specificTimes.filter(time => time && typeof time === 'string' && time.match(/^\d{2}:\d{2}$/));
-          if (validTimes.length > 0) {
+          
+          // Check if specificTimes is just the default value ['09:00'] - if so, ignore it
+          const isJustDefault = validTimes.length === 1 && validTimes[0] === '09:00' && 
+                                !medication.preferredTime && 
+                                !medication.frequency?.timeOfDay;
+          
+          if (validTimes.length > 0 && !isJustDefault) {
+            // User has explicitly set specificTimes (not just the default)
             timesToCheck.push(...validTimes);
           }
         }
@@ -153,23 +200,22 @@ function App() {
         // If still no times found in frequency, check medication-level times
         if (timesToCheck.length === 0) {
           if (medication.preferredTime && typeof medication.preferredTime === 'string' && medication.preferredTime.match(/^\d{2}:\d{2}$/)) {
+            // Medication has an explicit preferredTime - use it
             timesToCheck.push(medication.preferredTime);
-          } else if (medication.defaultTime && typeof medication.defaultTime === 'string' && medication.defaultTime.match(/^\d{2}:\d{2}$/)) {
-            timesToCheck.push(medication.defaultTime);
           } else {
-            // Finally, use user's defaultTime as fallback
-            const userDefaultTime = user?.preferences?.defaultTime || '09:00';
+            // No explicit times provided - use user's global defaultTime
+            // (Ignore medication.defaultTime and default specificTimes as they're just default values, not user-set)
             timesToCheck.push(userDefaultTime);
           }
         }
-
         console.log(`[Notification Check] Checking ${medication.name}:`, {
           frequencyType: medication.frequency.type,
           specificTimes: medication.frequency.specificTimes,
           timeOfDay: medication.frequency.timeOfDay,
           timesPerDay: medication.frequency.timesPerDay,
           preferredTime: medication.preferredTime,
-          defaultTime: medication.defaultTime,
+          medicationDefaultTime: medication.defaultTime,
+          userDefaultTime,
           timesToCheck,
           currentTime,
         });
@@ -640,6 +686,7 @@ function App() {
                   medication={medication}
                   index={notifications.length - 1 - index}
                   snoozeDuration={user?.preferences?.snoozeDuration || 1}
+                  userDefaultTime={user?.preferences?.defaultTime || '09:00'}
                   onDismiss={() => {
                     setNotifications((prev) => prev.filter((m) => m.id !== medication.id));
                   }}
@@ -679,18 +726,30 @@ function App() {
                       // Get all times for this medication (same priority as notification check)
                       const timesToMark: string[] = [];
                       
-                      // Priority order: timeOfDay > specificTimes > preferredTime > defaultTime > user defaultTime
+                      // Priority order: timeOfDay > specificTimes (if not default) > preferredTime > user defaultTime
+                      // (Ignore medication.defaultTime and default specificTimes as they're just default values, not user-set)
                       if (med.frequency?.timeOfDay) {
                         timesToMark.push(med.frequency.timeOfDay);
-                      } else if (med.frequency?.specificTimes && med.frequency.specificTimes.length > 0) {
-                        // Mark all specific times for this medication
+                      } else if (med.frequency?.specificTimes && Array.isArray(med.frequency.specificTimes) && med.frequency.specificTimes.length > 0) {
+                        // Filter valid times
                         const validTimes = med.frequency.specificTimes.filter(time => time && typeof time === 'string' && time.match(/^\d{2}:\d{2}$/));
-                        timesToMark.push(...validTimes);
+                        
+                        // Check if specificTimes is just the default value ['09:00'] - if so, ignore it
+                        const isJustDefault = validTimes.length === 1 && validTimes[0] === '09:00' && 
+                                              !med.preferredTime && 
+                                              !med.frequency?.timeOfDay;
+                        
+                        if (validTimes.length > 0 && !isJustDefault) {
+                          // User has explicitly set specificTimes (not just the default)
+                          timesToMark.push(...validTimes);
+                        } else {
+                          // Use user's global defaultTime
+                          timesToMark.push(user?.preferences?.defaultTime || '09:00');
+                        }
                       } else if (med.preferredTime) {
                         timesToMark.push(med.preferredTime);
-                      } else if (med.defaultTime) {
-                        timesToMark.push(med.defaultTime);
                       } else {
+                        // Use user's global defaultTime
                         timesToMark.push(user?.preferences?.defaultTime || '09:00');
                       }
                       
